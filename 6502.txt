@@ -1,0 +1,403 @@
+; ROM Subroutines
+define SCINIT	$ff81 ; initialize/clear screen
+define CHRIN	$ffcf ; input character from keyboard
+define CHROUT	$ffd2 ; output character to screen
+define SCREEN	$ffed ; get screen size
+define PLOT	$fff0 ; get/set cursor coordinates
+
+; vars and constants
+define ENTER     $0d ; for the ENTER key
+define BCKSP     $08 ; for the BACKSPACE key
+define RIGHT     $81 ; for the RIGHT Key
+define LEFT      $83 ; for the LEFT key
+
+define WIDTH 	  32 ; width  of win sprite
+define HEIGHT 	  8  ; height of win sprite
+
+define STR       $03 ; string to hold number string 
+define UGUESS1   $05 ; first digit of user's guess in ascii
+define UGUESS2   $06 ; second digit of user's guess ina ascii
+define VAL	 $10 ; var to store value to convert to decimal ascii      
+define MOD       $11 ; var used in hex to decimal conversion
+define GCNT      $12 ; guess count variable
+define RANDN     $13 ; var to hold random number 
+define GUESSC1   $14 ; var to hold the cursor position of the first digit for the user input
+define GUESSC2   $15 ; var to hold the cursor position of the second digit for the user input
+define GUESSCE   $16 ; var to hold the cursor position of the end for the user input
+
+jsr SCINIT 	; clear screen
+
+; initial setup
+setup: 	lda #$00   ; set pointer for counter string 
+      	sta $03    ; at $12 to $0000
+      	lda #$00	
+      	sta $04
+
+	jsr ptitle ; print title
+
+	jsr nline  ; new line
+	ldy #$00   ; reset counter
+	
+	jsr pwhat  ; print what is it question	
+
+	jsr nline  ; new line
+	ldy #$00   ; reset counter
+	
+	lda #$01   ; set guess counter to one
+	sta GCNT 
+
+	lda $fe    ; get random number 
+	lsr
+	and #$63   ; ensure it is between 0 and 99
+	sta RANDN     
+
+; main game
+main:   ldy #$00
+	jsr pgss   ; print guess message
+
+	ldy #$00
+	jsr clean  
+	lda GCNT 
+	sta VAL 
+	jsr pgcnt  ; print guess counter
+	
+	ldy #$00   
+	jsr pugss  ; print field for user input 
+	
+	jsr ggss   ; get the number from the user
+
+	ldy #$00
+	jsr clean
+	lda RANDN  ; convert number to guess to ascii string to compare
+	sta VAL    ; with user's guess
+	jsr convert 
+
+	lda $00
+	cmp UGUESS1 ; check first digit
+	bcc high
+	bne low
+
+	clc
+
+	lda $01
+	cmp UGUESS2 ; check second digit  
+	bcc high
+	bne low
+	beq win
+
+; subroutine to increment guess counter
+incr:   inc GCNT
+	rts      
+
+; subroutine to display low message 
+low:    jsr incr
+        jsr nline
+	ldy #$00
+	jsr ptlow
+	jsr bline
+
+	jmp main
+
+; subroutine to display high message 
+high:   jsr incr
+	jsr nline
+	ldy #$00
+	jsr pthigh
+	jsr bline
+	
+	jmp main
+
+; win 
+win:    jsr nline
+	ldy #$00
+	jsr remove ; remove hint message
+        clc
+	jmp drawin
+
+; clean STR pointer
+clean:  lda #$00 
+      	sta $00  	
+      	sta $01
+	sta $02
+	rts
+
+; subroutine gets the number from the user 
+; and stores it in GUESSC1 and GUESSC2 variables
+ggss:   sec
+        jsr PLOT    ; get current cursor position
+	stx GUESSCE ; store end pos
+	dex        
+	stx GUESSC2 ; store second digit pos
+	dex 
+	stx GUESSC1 ; store first digi pos
+        clc        
+        jsr PLOT    ; set the position 
+
+gloop:  sec
+        jsr PLOT   ; get character and position for comparisons 
+        jsr CHRIN
+
+kcheck: cmp #RIGHT ; RIGHT arrow key goes to the right digit
+        beq right
+        cmp #LEFT  ; LEFT  arrow key goes to the left digit
+        beq left
+        cmp #BCKSP ; BACKSPACE deletes left digit
+        beq delete
+        cmp #ENTER ; ENTER submits user guess
+        beq store
+
+disp:   cmp #$30   ; check if character is equal or bigger than "0" ASCII Character     
+        bcc gloop  ; try again if less 
+
+     	clc
+     	cmp #$3a   ; check if character is less than ":" ASCII Character which goes after "9"
+     	bcs gloop  ; if equal or bigger try again
+
+     	jsr CHROUT ; put character if number
+
+     	sec
+     	jsr PLOT
+     	cpx GUESSCE ; check if the cursor on the end
+     	bne gloop   
+     	dex         ; if yes, go back
+     	clc
+     	jsr PLOT
+     	jmp gloop
+
+store:  sec
+        jsr PLOT
+        ldx GUESSC1  ; first digit
+        clc
+        jsr PLOT
+        sec
+        jsr PLOT
+	clc
+	sta $07   
+     
+        ldx GUESSC2  ; second digit
+        clc
+        jsr PLOT
+        sec
+        jsr PLOT
+        clc
+
+	ldx $07
+	cpx #$30
+	bcc one 
+two:	stx UGUESS1
+	sta UGUESS2   
+	rts
+       
+one:	sta UGUESS1
+	lda #$00
+	sta UGUESS2   
+        rts
+
+left:   cpx GUESSC1 ; move to first digit
+        jmp action
+
+right:  cpx GUESSC2 ; move second digit
+        jmp action
+
+delete: cpx GUESSC1 ; delete first digit
+        jmp action
+
+; subroutine used by left, right and delete to act upon key press
+action: beq gloop
+        jsr CHROUT
+        jmp gloop
+
+; hex to ascii decimal conversion subroutine 
+; result example #$13 -> "91" (not the right order)
+convert: lda #$00    ; reset mod
+	 sta MOD  
+	 clc
+
+	 ldx #$08    ; counter for 1 byte numbers
+divloop: rol VAL     ; rotate left both value to convert
+	 rol MOD     ; and mod
+
+	 sec         ; set carry
+	 lda MOD    
+	 sbc #$0a    ; subtract 10 from mod
+	 bcc ignore  ; check carry flag
+	 sta MOD     ; store mod
+
+ignore:  dex         
+	 bne divloop ; check if done
+	 rol VAL     ; rol again
+	 lda MOD    
+	 clc         ; clear carry
+         adc #$30    ; add 0x30 with carry to get ascii code for the current number
+
+         jsr cpush       ; push character to pointer
+
+	 lda VAL
+	 ora #$00    ; check if not done
+	 bne convert ; go to the next num
+	 rts
+
+; subroutine to push the character on to the pointer at $12
+; this subroutine puts numbers created by convert in order 
+; "91" -> "19"
+cpush:  pha
+        ldy #$00
+cloop:	lda (STR), y
+        tax
+	pla
+        sta (STR), y
+        iny 
+        txa 
+	pha
+        bne cloop
+        pla 
+	sta (STR), y
+        rts
+
+; print guess counter string
+pgcnt:  jsr convert
+	ldy #$00
+pgloop:	lda (STR), y
+	beq back
+	jsr CHROUT
+	iny
+	jmp pgloop
+
+; print title subroutine
+ptitle: lda title, y
+	beq back
+	jsr CHROUT
+	iny
+	bne ptitle
+	
+; print what question subroutine
+pwhat:  lda what, y
+	beq back
+	jsr CHROUT
+	iny
+	bne pwhat
+
+; print guess subroutine 
+pgss:   lda guess, y
+	beq back
+	jsr CHROUT
+	iny
+	bne pgss
+
+; print zeros for  user guess
+pugss:  lda uguess, y
+	beq back
+	jsr CHROUT
+	iny
+	bne pugss
+
+; print too low message
+ptlow:  lda tlow, y
+	beq back
+	jsr CHROUT
+	iny
+	bne ptlow
+
+; print too high message
+pthigh: lda thigh, y
+	beq back
+	jsr CHROUT
+	iny
+	bne pthigh
+
+; remove hint line 
+remove: lda thigh, y
+	beq back
+	lda #$20
+	jsr CHROUT
+	iny
+	bne remove
+
+; go to new line subroutine 
+nline:  sec	 ; set carry
+     	jsr PLOT ; store position to x, y indexes
+
+	ldx #$00 ; set x position of cursor to 0
+     	iny 	 ; increase y position of cursor by one
+     	clc	 ; clear carry
+     	jsr PLOT ; set cursor position
+	rts
+
+; go to back one line subroutine 
+bline:  sec	 ; set carry
+     	jsr PLOT ; store position to x, y indexes
+
+	ldx #$00 ; set x position of cursor to 0
+     	dey 	 ; increase y position of cursor by one
+     	clc	 ; clear carry
+     	jsr PLOT ; set cursor position
+	rts
+
+done:   brk
+back:   rts
+
+; win sprite print subroutine 
+drawin: lda #$20 ; create a pointer at $08
+ 	sta $17	 ; which points to where
+ 	lda #$02 ; the win sprite should be drawn
+ 	sta $18
+ 
+ 	lda #$00 ; number of rows we've drawn
+ 	sta $19	 ; is stored in $0a
+ 
+ 	ldx #$00 ; index for data
+ 	ldy #$00 ; index for screen column
+ 
+draw:	lda data ,x
+ 	sta ($17),y
+ 	inx
+ 	iny
+ 	cpy #WIDTH
+ 	bne draw
+ 	inc $19	    ; increment row counter
+ 	lda #HEIGHT ; are we done yet?
+ 	cmp $19
+ 	beq done    ; ...exit if we are
+ 
+ 	lda $17	    ; load pointer
+ 	clc
+ 	adc #$20    ; add 32 to drop one row
+ 	sta $17
+ 	lda $18     ; carry to high byte if needed
+ 	adc #$00
+ 	sta $18
+
+ 	ldy #$00
+ 	beq draw
+
+title:
+dcb "G","u","e","s","s","i","n","g",32,"g","a","m","e",".",32
+dcb "N","u","m","b","e","r",32,"i","s",32,"b","e","t","w","e","e","n",32
+dcb "1",32,"a","n","d",32,"9","9",".",
+dcb 00
+
+what:
+dcb "W","h","a","t",32,"i","s",32,"i","t","?",00
+
+guess:
+dcb "G","u","e","s","s",32,"#",00
+
+uguess:
+dcb ":",32,"0","0",00
+
+tlow:
+dcb "S","o","r","r","y",44,32,"t","o","o",32,"l","o","w","!",32,32,"T","r","y",32,"a","g","a","i","n",00
+
+thigh:
+dcb "S","o","r","r","y",44,32,"t","o","o",32,"h","i","g","h","!",32,"T","r","y",32,"a","g","a","i","n",00
+
+; win sprite
+data:               
+dcb 00,07,07,00,00,07,07,00,00,07,07,00,00,07,07,07,07,07,07,00,00,00,07,07,00,00,00,00,07,07,00,00
+dcb 00,07,07,00,00,07,07,00,00,07,07,00,00,00,00,07,07,00,00,00,00,00,07,07,07,00,00,00,07,07,00,00
+dcb 00,07,07,00,00,07,07,00,00,07,07,00,00,00,00,07,07,00,00,00,00,00,07,07,07,07,00,00,07,07,00,00
+dcb 00,07,07,00,00,07,07,00,00,07,07,00,00,00,00,07,07,00,00,00,00,00,07,07,07,07,07,00,07,07,00,00
+dcb 00,07,07,00,00,07,07,00,00,07,07,00,00,00,00,07,07,00,00,00,00,00,07,07,00,07,07,07,07,07,00,00
+dcb 00,00,07,07,00,07,07,00,07,07,00,00,00,00,00,07,07,00,00,00,00,00,07,07,00,00,07,07,07,07,00,00
+dcb 00,00,07,07,07,07,07,07,07,07,00,00,00,00,00,07,07,00,00,00,00,00,07,07,00,00,00,07,07,07,00,00
+dcb 00,00,00,07,07,07,07,07,07,00,00,00,00,07,07,07,07,07,07,00,00,00,07,07,00,00,00,00,07,07,00,00
