@@ -72,18 +72,26 @@ main:   ldy #$00
 	sta VAL    ; with user's guess
 	jsr convert 
 
-	lda $00
+	lda $01
+	cmp #$00    ; check if number to guess if one digit long
+	beq shift   ; shift it to right in memory to insert "0"
+
+check:	lda $00     ; check two numbers
 	cmp UGUESS1 ; check first digit
 	bcc high
 	bne low
-
-	clc
 
 	lda $01
 	cmp UGUESS2 ; check second digit  
 	bcc high
 	bne low
 	beq win
+
+shift:  lda $00
+	sta $01
+	lda #$30
+	sta $00
+	jmp check
 
 ; subroutine to increment guess counter
 incr:   inc GCNT
@@ -181,25 +189,25 @@ store:  sec
         jsr PLOT
         clc
 
+	sta UGUESS2  ; store second digit
+
 	ldx $07
-	cpx #$30
-	bcc one 
-two:	stx UGUESS1
-	sta UGUESS2   
+	cpx #$31
+	bcc one      ; check if user enter one digit number
+two:	stx UGUESS1  ; store first digit
 	rts
        
-one:	sta UGUESS1
-	lda #$00
-	sta UGUESS2   
+one:	ldx #$30     ; set it "0"	
+	stx UGUESS1  ; because user can enter "02" or " 2"
         rts
 
-left:   cpx GUESSC1 ; move to first digit
+left:   cpx GUESSC1  ; move to first digit
         jmp action
 
-right:  cpx GUESSC2 ; move second digit
+right:  cpx GUESSC2  ; move second digit
         jmp action
 
-delete: cpx GUESSC1 ; delete first digit
+delete: cpx GUESSC1  ; delete first digit
         jmp action
 
 ; subroutine used by left, right and delete to act upon key press
